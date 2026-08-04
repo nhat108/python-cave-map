@@ -1,6 +1,7 @@
-[gd_scene load_steps=3 format=3 uid="uid://c88player100m"]
+[gd_scene load_steps=4 format=3 uid="uid://c88player100m"]
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/diver_model.gd" id="2_diver_model"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.45
@@ -17,6 +18,7 @@ shape = SubResource("CapsuleShape3D_player")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 
 [node name="Camera3D" type="Camera3D" parent="Head"]
+cull_mask = 1
 
 [node name="SpotLight3D" type="SpotLight3D" parent="Head/Camera3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0, 0.0, -0.2)
@@ -27,6 +29,18 @@ spot_range = 3.0
 spot_angle = 55.0
 spot_attenuation = 0.5
 shadow_enabled = true
+
+[node name="ThirdPersonSpringArm3D" type="SpringArm3D" parent="Head/Camera3D"]
+spring_length = 4.0
+margin = 0.2
+collision_mask = 1
+
+[node name="ThirdPersonCamera3D" type="Camera3D" parent="Head/Camera3D/ThirdPersonSpringArm3D"]
+cull_mask = 3
+fov = 72.0
+
+[node name="DiverVisual" type="Node3D" parent="."]
+script = ExtResource("2_diver_model")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
@@ -76,3 +90,30 @@ offset_top = 80.0
 offset_right = 250.0
 offset_bottom = 110.0
 text = "[F] Headlamp: ON"
+
+[node name="ViewModeButton" type="Button" parent="CanvasLayer/Control"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 115.0
+offset_right = 245.0
+offset_bottom = 150.0
+theme_override_font_sizes/font_size = 16
+text = "[V] View: FIRST PERSON"
+
+[node name="SwimUpButton" type="Button" parent="CanvasLayer/Control"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 160.0
+offset_right = 245.0
+offset_bottom = 195.0
+theme_override_font_sizes/font_size = 16
+text = "[SPACE] Swim Up"
+
+[node name="SwimDownButton" type="Button" parent="CanvasLayer/Control"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 200.0
+offset_right = 245.0
+offset_bottom = 235.0
+theme_override_font_sizes/font_size = 16
+text = "[C] Swim Down"

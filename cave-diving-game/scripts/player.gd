@@ -10,23 +10,58 @@ const MOUSE_SENSITIVITY = 0.002
 
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 var flashlight_on = true
+var is_swimming = false
+var third_person_view = false
+var swim_up_button_held = false
+var swim_down_button_held = false
 
 @onready var head = $Head
 @onready var camera = $Head/Camera3D
 @onready var flashlight = $Head/Camera3D/SpotLight3D
+@onready var third_person_camera = $Head/Camera3D/ThirdPersonSpringArm3D/ThirdPersonCamera3D
 @onready var distance_label = $CanvasLayer/Control/DistanceLabel
 @onready var flashlight_label = $CanvasLayer/Control/FlashlightLabel
 @onready var state_label = $CanvasLayer/Control/StateLabel
+@onready var view_mode_button = $CanvasLayer/Control/ViewModeButton
+@onready var swim_up_button = $CanvasLayer/Control/SwimUpButton
+@onready var swim_down_button = $CanvasLayer/Control/SwimDownButton
 
 func _ready():
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_update_headlamp_visibility()
+	view_mode_button.pressed.connect(_toggle_view_mode)
+	swim_up_button.button_down.connect(_on_swim_up_button_down)
+	swim_up_button.button_up.connect(_on_swim_up_button_up)
+	swim_down_button.button_down.connect(_on_swim_down_button_down)
+	swim_down_button.button_up.connect(_on_swim_down_button_up)
+	_update_view_mode()
 
 func _update_headlamp_visibility():
 	if flashlight:
 		flashlight.visible = flashlight_on
 	if flashlight_label:
 		flashlight_label.text = "[F] Headlamp: " + ("ON" if flashlight_on else "OFF")
+
+func _toggle_view_mode() -> void:
+	third_person_view = !third_person_view
+	_update_view_mode()
+
+func _update_view_mode() -> void:
+	camera.current = !third_person_view
+	third_person_camera.current = third_person_view
+	view_mode_button.text = "[V] View: " + ("THIRD PERSON" if third_person_view else "FIRST PERSON")
+
+func _on_swim_up_button_down() -> void:
+	swim_up_button_held = true
+
+func _on_swim_up_button_up() -> void:
+	swim_up_button_held = false
+
+func _on_swim_down_button_down() -> void:
+	swim_down_button_held = true
+
+func _on_swim_down_button_up() -> void:
+	swim_down_button_held = false
 
 func _unhandled_input(event):
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
@@ -37,6 +72,8 @@ func _unhandled_input(event):
 	if event.is_action_pressed("toggle_flashlight"):
 		flashlight_on = !flashlight_on
 		_update_headlamp_visibility()
+	if event.is_action_pressed("toggle_view"):
+		_toggle_view_mode()
 
 	if event.is_action_pressed("ui_cancel"):
 		if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
@@ -57,6 +94,7 @@ func _physics_process(delta):
 
 	var player_y = global_transform.origin.y
 	var is_underwater = (player_y < water_surface_y)
+	is_swimming = is_underwater
 
 	if state_label:
 		state_label.text = "[UNDERWATER DIVING]" if is_underwater else "[AIR / WALKING]"
@@ -68,9 +106,9 @@ func _physics_process(delta):
 		var swim_dir = (camera_basis.x * input_dir.x + camera_basis.z * input_dir.y).normalized()
 
 		var vertical_move = 0.0
-		if Input.is_action_pressed("jump"):
+		if Input.is_action_pressed("jump") or swim_up_button_held:
 			vertical_move += 1.0
-		if Input.is_physical_key_pressed(KEY_C) or Input.is_physical_key_pressed(KEY_CTRL):
+		if Input.is_physical_key_pressed(KEY_C) or Input.is_physical_key_pressed(KEY_CTRL) or swim_down_button_held:
 			vertical_move -= 1.0
 
 		var idle_sink = -0.8 if vertical_move == 0.0 and input_dir.length() == 0 else 0.0
