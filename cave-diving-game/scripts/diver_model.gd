@@ -79,11 +79,15 @@ func _process(delta: float) -> void:
 	var diver := get_parent() as CharacterBody3D
 	if diver == null:
 		return
+	var head := diver.get_node_or_null("Head") as Node3D
 	var is_swimming: bool = diver.is_swimming
 	var is_moving := diver.velocity.length() > 0.2
 	var target_rotation_x := -PI * 0.5 if is_swimming else 0.0
 	var target_position := Vector3(0.0, 0.82, 0.0) if is_swimming else Vector3.ZERO
 	rotation.x = lerp_angle(rotation.x, target_rotation_x, min(delta * 6.0, 1.0))
+	if head:
+		# The body follows the player's look direction, giving continuous turns in third person.
+		rotation.y = lerp_angle(rotation.y, head.rotation.y, min(delta * 8.0, 1.0))
 	position = position.lerp(target_position, min(delta * 6.0, 1.0))
 	if is_swimming:
 		# Tread gently when idle and use a faster, wider stroke while moving.

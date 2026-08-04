@@ -63,7 +63,12 @@ func _on_swim_down_button_down() -> void:
 func _on_swim_down_button_up() -> void:
 	swim_down_button_held = false
 
-func _unhandled_input(event):
+func _input(event):
+	# Clicking the game viewport restores mouse-look after using HUD buttons.
+	if event is InputEventMouseButton and event.pressed and Input.get_mouse_mode() != Input.MOUSE_MODE_CAPTURED:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+		return
+
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		head.rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
 		camera.rotate_x(-event.relative.y * MOUSE_SENSITIVITY)
