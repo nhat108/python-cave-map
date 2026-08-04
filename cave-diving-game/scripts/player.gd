@@ -7,6 +7,7 @@ const SWIM_SPEED = 6.0
 const SPRINT_SPEED = 8.5
 const JUMP_VELOCITY = 5.0
 const MOUSE_SENSITIVITY = 0.002
+const CAVE_VERTICAL_OFFSET = -9.0
 
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 var flashlight_on = true
@@ -93,9 +94,11 @@ func _physics_process(delta):
 	var cy = 2.5 * cos(0.06 * z_pos) - 1.5 * sin(0.15 * z_pos)
 	var r_curr = 4.2 + 2.2 * sin(0.1 * z_pos) + 1.2 * cos(0.25 * z_pos)
 
-	var floor_y = cy - r_curr + 0.8
-	var ceiling_y = cy + r_curr - 0.9
-	var water_surface_y = cy - 0.10
+	# Surface lake is at Y=1.22; the cave begins below it around Y=-9.
+	var in_buried_cave := global_transform.origin.y < -3.0 and global_transform.origin.z <= 102.0
+	var floor_y = cy + CAVE_VERTICAL_OFFSET - r_curr + 0.8
+	var ceiling_y = cy + CAVE_VERTICAL_OFFSET + r_curr - 0.9
+	var water_surface_y = cy + CAVE_VERTICAL_OFFSET - 0.10 if in_buried_cave else 1.22
 
 	var player_y = global_transform.origin.y
 	var is_underwater = (player_y < water_surface_y)
@@ -141,8 +144,9 @@ func _physics_process(delta):
 
 	move_and_slide()
 
-	global_transform.origin.y = clamp(global_transform.origin.y, floor_y, ceiling_y)
-	global_transform.origin.x = clamp(global_transform.origin.x, cx - r_curr + 0.6, cx + r_curr - 0.6)
+	if in_buried_cave:
+		global_transform.origin.y = clamp(global_transform.origin.y, floor_y, ceiling_y)
+		global_transform.origin.x = clamp(global_transform.origin.x, cx - r_curr + 0.6, cx + r_curr - 0.6)
 
 	if distance_label:
 		var dist_m = clamp(global_transform.origin.z, 0.0, 100.0)

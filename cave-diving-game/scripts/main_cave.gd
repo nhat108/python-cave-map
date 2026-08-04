@@ -10,8 +10,8 @@ func _ready():
 	_setup_cave_materials_and_collisions(cave_level)
 
 	if player:
-		player.global_transform.origin = Vector3(8.34, -2.2, 95.0)
-		player.rotation_degrees.y = 180.0
+		player.global_transform.origin = Vector3(164.6, 7.35, -337.0)
+		player.rotation_degrees.y = 0.0
 
 func _setup_cave_materials_and_collisions(node: Node):
 	if node is MeshInstance3D:
