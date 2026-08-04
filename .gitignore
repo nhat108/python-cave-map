@@ -1,0 +1,35 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test, type-checking, and coverage artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build and packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Generated cave assets and previews
+*.png
+*.obj
+*.glb
+*_pack/
+*_pack_*/
+output_*/
+
+# Local editor and operating-system files
+.DS_Store
+.idea/
+.vscode/

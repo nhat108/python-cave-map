@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 100m Cave Diving & Explorer Preview</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #040608; font-family: sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        #hud {
+            position: absolute; top: 20px; left: 20px; color: #d0f0ff;
+            text-shadow: 1px 1px 4px rgba(0,0,0,0.9); font-size: 18px; pointer-events: none;
+        }
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 6px; height: 6px;
+            background: white; border-radius: 50%; transform: translate(-50%, -50%);
+            pointer-events: none; opacity: 0.7;
+        }
+        #instructions {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #fff; background: rgba(5, 8, 12, 0.92); padding: 25px 40px; border-radius: 12px;
+            text-align: center; border: 1px solid #334; cursor: pointer; z-index: 10;
+        }
+        #instructions h2 { margin-top: 0; color: #58c1e5; }
+        kbd { background: #223; padding: 2px 6px; border-radius: 4px; border: 1px solid #445; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div id="crosshair"></div>
+    <div id="hud">
+        <div id="dist">Position: Z=95.0m / 100.0m</div>
+        <div id="state">[UNDERWATER DIVING]</div>
+        <div id="flash">[F] Headlamp: ON</div>
+    </div>
+    <div id="instructions">
+        <h2>3D CAVE DIVING EXPLORER</h2>
+        <p>Click anywhere to start! CULL_BACK PBR materials & headlamp verified.</p>
+        <p><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> : Swim 3D inside cave</p>
+        <p><kbd>Space</kbd> : Swim UP / Jump | <kbd>C</kbd> : Dive DOWN</p>
+        <p><kbd>Shift</kbd> : Swim Fast | <kbd>F</kbd> : Toggle Headlamp</p>
+    </div>
+
+    <script>
+        const container = document.getElementById('canvas-container');
+        const hudDist = document.getElementById('dist');
+        const hudFlash = document.getElementById('flash');
+        const hudState = document.getElementById('state');
+        const instructions = document.getElementById('instructions');
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000000);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
+        camera.position.set(8.34, -2.20, 95.0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.PointerLockControls(camera, document.body);
+        instructions.addEventListener('click', () => controls.lock());
+        controls.addEventListener('lock', () => instructions.style.display = 'none');
+        controls.addEventListener('unlock', () => instructions.style.display = 'block');
+
+        // No ambient fill: the cave is visible only inside the player's headlamp range.
+        const ambientLight = new THREE.AmbientLight(0x000000, 0.0);
+        scene.add(ambientLight);
+
+        // Player headlamp: a forward-facing spotlight, aligned with the camera view.
+        const flashlight = new THREE.SpotLight(0xfff5e6, 1.0, 3, Math.PI / 2.8, 0.4, 0.5);
+        flashlight.position.set(0.0, 0.0, -0.2);
+        flashlight.target.position.set(0, 0, -10);
+        camera.add(flashlight);
+        camera.add(flashlight.target);
+
+        scene.add(camera);
+
+        let flashlightOn = true;
+
+        // Load GLB
+        const loader = new THREE.GLTFLoader();
+        loader.load('assets/cave_tunnel_100m.glb', (gltf) => {
+            const caveScene = gltf.scene;
+            caveScene.traverse((child) => {
+                if (child.isMesh) {
+                    if (child.name.includes("Water")) {
+                        child.material = new THREE.MeshStandardMaterial({
+                            color: 0x1f94d6, roughness: 0.05, metalness: 0.0,
+                            transparent: true, opacity: 0.45, side: THREE.DoubleSide
+                        });
+                    } else if (child.name.includes("Sediment")) {
+                        child.material = new THREE.MeshStandardMaterial({
+                            color: 0x856647, roughness: 0.45, metalness: 0.0
+                        });
+                    } else if (child.name.includes("Speleothems")) {
+                        child.material = new THREE.MeshStandardMaterial({
+                            color: 0xd9c7ad, roughness: 0.45, metalness: 0.0
+                        });
+                    } else if (child.name.includes("Boulders")) {
+                        child.material = new THREE.MeshStandardMaterial({
+                            color: 0xb8a38a, roughness: 0.65, metalness: 0.0
+                        });
+                    } else {
+                        child.material = new THREE.MeshStandardMaterial({
+                            color: 0xad9980, roughness: 0.75, metalness: 0.0
+                        });
+                    }
+                }
+            });
+            scene.add(caveScene);
+        });
+
+        let moveFwd = false, moveBwd = false, moveLeft = false, moveRight = false, moveUp = false, moveDown = false, isSprint = false;
+        const velocity = new THREE.Vector3();
+        const gravity = 9.8;
+
+        document.addEventListener('keydown', (e) => {
+            switch(e.code) {
+                case 'KeyW': moveFwd = true; break;
+                case 'KeyS': moveBwd = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'Space': moveUp = true; break;
+                case 'KeyC': case 'ControlLeft': moveDown = true; break;
+                case 'ShiftLeft': isSprint = true; break;
+                case 'KeyF':
+                    flashlightOn = !flashlightOn;
+                    flashlight.visible = flashlightOn;
+                    hudFlash.innerText = '[F] Headlamp: ' + (flashlightOn ? 'ON' : 'OFF');
+                    break;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            switch(e.code) {
+                case 'KeyW': moveFwd = false; break;
+                case 'KeyS': moveBwd = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyD': moveRight = false; break;
+                case 'Space': moveUp = false; break;
+                case 'KeyC': case 'ControlLeft': moveDown = false; break;
+                case 'ShiftLeft': isSprint = false; break;
+            }
+        });
+
+        let prevTime = performance.now();
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+            prevTime = time;
+
+            if (controls.isLocked) {
+                const zPos = camera.position.z;
+                const cx = 8.0 * Math.sin(0.08 * zPos) + 4.0 * Math.sin(0.20 * zPos);
+                const cy = 2.5 * Math.cos(0.06 * zPos) - 1.5 * Math.sin(0.15 * zPos);
+                const rCurr = 4.2 + 2.2 * Math.sin(0.1 * zPos) + 1.2 * Math.cos(0.25 * zPos);
+
+                const floorY = cy - rCurr + 0.8;
+                const ceilingY = cy + rCurr - 0.9;
+                const waterSurfaceY = cy - 0.10;
+
+                const isUnderwater = (camera.position.y < waterSurfaceY);
+                hudState.innerText = isUnderwater ? '[UNDERWATER DIVING]' : '[AIR / WALKING]';
+
+                if (isUnderwater) {
+                    const speed = isSprint ? 8.5 : 5.5;
+                    velocity.x -= velocity.x * 6.0 * delta;
+                    velocity.y -= velocity.y * 6.0 * delta;
+                    velocity.z -= velocity.z * 6.0 * delta;
+
+                    const dirZ = Number(moveFwd) - Number(moveBwd);
+                    const dirX = Number(moveRight) - Number(moveLeft);
+                    const dirY = Number(moveUp) - Number(moveDown);
+                    const idleSink = (dirY === 0 && dirZ === 0 && dirX === 0) ? -0.8 : 0.0;
+
+                    if (dirZ !== 0) velocity.z -= dirZ * speed * 6.0 * delta;
+                    if (dirX !== 0) velocity.x -= dirX * speed * 6.0 * delta;
+                    velocity.y += (dirY * speed + idleSink) * 6.0 * delta;
+
+                    controls.moveForward(-velocity.z * delta);
+                    controls.moveRight(-velocity.x * delta);
+                    camera.position.y += velocity.y * delta;
+                } else {
+                    velocity.y -= gravity * delta;
+                    if (moveUp && camera.position.y <= waterSurfaceY + 0.2) {
+                        velocity.y = 5.0;
+                    }
+                    camera.position.y += velocity.y * delta;
+
+                    const speed = isSprint ? 8.5 : 4.5;
+                    const dirZ = Number(moveFwd) - Number(moveBwd);
+                    const dirX = Number(moveRight) - Number(moveLeft);
+                    controls.moveForward(-dirZ * speed * delta);
+                    controls.moveRight(-dirX * speed * delta);
+                }
+
+                if (camera.position.y < floorY) camera.position.y = floorY;
+                if (camera.position.y > ceilingY) camera.position.y = ceilingY;
+                if (camera.position.x < cx - rCurr + 0.6) camera.position.x = cx - rCurr + 0.6;
+                if (camera.position.x > cx + rCurr - 0.6) camera.position.x = cx + rCurr - 0.6;
+
+                const depth = Math.min(Math.max(camera.position.z, 0.0), 100.0);
+                hudDist.innerText = `Position: Z=${depth.toFixed(1)}m / 100.0m`;
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

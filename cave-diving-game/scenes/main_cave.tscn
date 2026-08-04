@@ -1,0 +1,24 @@
+[gd_scene load_steps=5 format=3 uid="uid://c88maincave100m"]
+
+[ext_resource type="Script" path="res://scripts/main_cave.gd" id="1_main_script"]
+[ext_resource type="PackedScene" uid="uid://c88player100m" path="res://scenes/player.tscn" id="2_player_inst"]
+[ext_resource type="PackedScene" path="res://assets/cave_tunnel_100m.glb" id="3_cave_mesh"]
+
+[sub_resource type="Environment" id="Environment_cave"]
+background_mode = 1
+background_color = Color(0, 0, 0, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0, 0, 0, 1)
+ambient_light_energy = 0.0
+fog_enabled = false
+
+[node name="MainCave" type="Node3D"]
+script = ExtResource("1_main_script")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_cave")
+
+[node name="CaveLevel" parent="." instance=ExtResource("3_cave_mesh")]
+
+[node name="Player" parent="." instance=ExtResource("2_player_inst")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 8.34, -2.2, 95.0)
