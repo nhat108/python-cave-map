@@ -22,9 +22,7 @@ dist/
 *.egg-info/
 
 # Generated cave assets and previews
-*.png
-*.obj
-*.glb
+
 *_pack/
 *_pack_*/
 output_*/
