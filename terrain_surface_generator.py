@@ -309,8 +309,17 @@ def export_heightmap(height: np.ndarray, output: Path) -> None:
 def export_mesh(x: np.ndarray, height: np.ndarray, z: np.ndarray, output: Path) -> None:
     """Export terrain and a flat, irregular lake surface into one Godot-ready GLB."""
     resolution = x.shape[0]
+    spacing = WORLD_SIZE_METERS / (resolution - 1)
     faces = grid_faces(resolution)
     terrain_vertices = np.column_stack((x.ravel(), height.ravel(), z.ravel()))
+
+    # Smooth per-vertex normals from the height gradient. Without these, the glTF
+    # has no NORMAL attribute and Godot auto-generates flat per-face normals,
+    # which makes the heightfield look like faceted low-poly chunks under directional
+    # light instead of the smooth terrain it actually is.
+    dz_drow, dz_dcol = np.gradient(height, spacing, spacing)
+    terrain_normals = np.dstack((-dz_drow, np.ones_like(height), -dz_dcol)).reshape(-1, 3)
+    terrain_normals = terrain_normals / np.linalg.norm(terrain_normals, axis=1, keepdims=True)
 
     # Cut out open entrance portal hole at bottom of sinkhole (radius < 7.8m at (0, -5))
     dist_v = np.sqrt((terrain_vertices[:, 0] - 0.0) ** 2 + (terrain_vertices[:, 2] - (-5.0)) ** 2)
@@ -326,9 +335,16 @@ def export_mesh(x: np.ndarray, height: np.ndarray, z: np.ndarray, output: Path) 
     v = (z.ravel() + WORLD_SIZE_METERS / 2.0) / WORLD_SIZE_METERS
     uvs = np.column_stack((u, v))
 
-    terrain_rgb = terrain_colors(height, WORLD_SIZE_METERS / (resolution - 1))
+    terrain_rgb = terrain_colors(height, spacing)
     terrain_rgba = np.column_stack((terrain_rgb.reshape(-1, 3) * 255, np.full(len(terrain_vertices), 255))).astype(np.uint8)
     terrain = trimesh.Trimesh(vertices=terrain_vertices, faces=faces, vertex_colors=terrain_rgba, visual=trimesh.visual.TextureVisuals(uv=uvs), process=False)
+    # unmerge_vertices() re-indexes every per-vertex array to one-vertex-per-face-corner;
+    # precompute that same re-indexing for the normals so we can re-assert it later. (Relying
+    # on trimesh's cache to carry the normals through untouched is not reliable once the lake
+    # and 220 trees are also built and added to the scene -- something along that path evicts
+    # the cached array, so the exported terrain silently loses its NORMAL attribute again.)
+    unmerged_terrain_normals = terrain_normals[faces.reshape(-1)]
+    terrain.vertex_normals = unmerged_terrain_normals
     terrain.unmerge_vertices()
 
     raw_faces = grid_faces(resolution)
@@ -353,6 +369,8 @@ def export_mesh(x: np.ndarray, height: np.ndarray, z: np.ndarray, output: Path) 
     except Exception as e:
         print(f"Tree generation warning: {e}")
 
+    # Re-assert immediately before export: see the comment above unmerge_vertices().
+    terrain.vertex_normals = unmerged_terrain_normals
     output.parent.mkdir(parents=True, exist_ok=True)
     scene.export(output)
 
