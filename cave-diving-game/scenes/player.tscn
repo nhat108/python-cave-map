@@ -1,4 +1,4 @@
-[gd_scene load_steps=4 format=3 uid="uid://c88player100m"]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://scripts/diver_model.gd" id="2_diver_model"]
@@ -18,17 +18,22 @@ shape = SubResource("CapsuleShape3D_player")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 
 [node name="Camera3D" type="Camera3D" parent="Head"]
-cull_mask = 5
+fov = 75.0
 
 [node name="SpotLight3D" type="SpotLight3D" parent="Head/Camera3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0, 0.0, -0.2)
-light_color = Color(1.0, 0.96, 0.88, 1)
-light_energy = 1.0
-light_specular = 0.2
-spot_range = 3.0
-spot_angle = 55.0
-spot_attenuation = 0.5
-shadow_enabled = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.2, -0.1, -0.2)
+light_color = Color(0.95, 0.98, 1, 1)
+light_energy = 4.0
+spot_range = 45.0
+spot_attenuation = 1.0
+spot_angle = 45.0
+
+[node name="OmniLight3D" type="OmniLight3D" parent="Head/Camera3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0, 0.1, -0.3)
+light_color = Color(0.90, 0.95, 1, 1)
+light_energy = 0.8
+omni_range = 15.0
+omni_attenuation = 1.2
 
 [node name="ThirdPersonSpringArm3D" type="SpringArm3D" parent="Head/Camera3D"]
 spring_length = 4.0
@@ -36,8 +41,7 @@ margin = 0.2
 collision_mask = 1
 
 [node name="ThirdPersonCamera3D" type="Camera3D" parent="Head/Camera3D/ThirdPersonSpringArm3D"]
-cull_mask = 7
-fov = 72.0
+fov = 75.0
 
 [node name="DiverVisual" type="Node3D" parent="."]
 script = ExtResource("2_diver_model")
@@ -51,79 +55,40 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-mouse_filter = 1
-
-[node name="Crosshair" type="ColorRect" parent="CanvasLayer/Control"]
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -2.0
-offset_top = -2.0
-offset_right = 2.0
-offset_bottom = 2.0
-grow_horizontal = 2
-grow_vertical = 2
-color = Color(1, 1, 1, 0.7)
-
-[node name="DistanceLabel" type="Label" parent="CanvasLayer/Control"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 20.0
-offset_right = 250.0
-offset_bottom = 50.0
-text = "Cave Position: Z=95.0m / 100m"
+mouse_filter = 2
 
 [node name="StateLabel" type="Label" parent="CanvasLayer/Control"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 50.0
+offset_top = 20.0
 offset_right = 300.0
-offset_bottom = 80.0
+offset_bottom = 50.0
+mouse_filter = 2
 text = "[UNDERWATER DIVING]"
 
 [node name="FlashlightLabel" type="Label" parent="CanvasLayer/Control"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 80.0
-offset_right = 250.0
-offset_bottom = 110.0
+offset_top = 55.0
+offset_right = 300.0
+offset_bottom = 85.0
+mouse_filter = 2
 text = "[F] Headlamp: ON"
 
-[node name="ViewModeButton" type="Button" parent="CanvasLayer/Control"]
+[node name="ViewModeLabel" type="Label" parent="CanvasLayer/Control"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 115.0
-offset_right = 245.0
-offset_bottom = 150.0
-theme_override_font_sizes/font_size = 16
+offset_top = 90.0
+offset_right = 300.0
+offset_bottom = 120.0
+mouse_filter = 2
 text = "[V] View: FIRST PERSON"
-
-[node name="SwimUpButton" type="Button" parent="CanvasLayer/Control"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 160.0
-offset_right = 245.0
-offset_bottom = 195.0
-theme_override_font_sizes/font_size = 16
-text = "[SPACE] Swim Up"
-
-[node name="SwimDownButton" type="Button" parent="CanvasLayer/Control"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 200.0
-offset_right = 245.0
-offset_bottom = 235.0
-theme_override_font_sizes/font_size = 16
-text = "[C] Swim Down"
 
 [node name="ControlsLabel" type="Label" parent="CanvasLayer/Control"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 245.0
-offset_right = 480.0
-offset_bottom = 275.0
-theme_override_colors/font_color = Color(0.78, 0.88, 1, 0.9)
-text = "Click game to look with mouse • ESC: unlock mouse"
+offset_top = 125.0
+offset_right = 550.0
+offset_bottom = 155.0
+mouse_filter = 2
+text = "WASD: Move • Mouse: Look • Space: Up • C: Down • V: Toggle 1st/3rd View"

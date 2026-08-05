@@ -32,6 +32,8 @@ from pyfastnoiselite.pyfastnoiselite import (
 from boulder_generator import BoulderGenerator
 from stalactite_generator import StalactiteGenerator
 from stalagmite_generator import StalagmiteGenerator
+from terrain_surface_generator import build_terrain, export_mesh
+from pathlib import Path
 
 
 def generate_single_stalagmite(seed=42, height=2.0, radius=0.4):
@@ -111,20 +113,31 @@ def build_100m_cave_level(seed=42):
     print("\n[1/5] Generating 100m Procedural 3D Cave Tunnel & 2D Water Ribbon Surface...")
     t0 = time.time()
 
-    # 1. 100m Cave Trajectory Curve
+    # 1. 100m Cave Trajectory Curve with Entrance Pit Shaft (Connecting to 5km surface terrain sinkhole at Y=35m)
     t_vals = np.linspace(0, 100.0, 400)
     curve_x = 8.0 * np.sin(0.08 * t_vals) + 4.0 * np.sin(0.20 * t_vals)
     curve_y = 2.5 * np.cos(0.06 * t_vals) - 1.5 * np.sin(0.15 * t_vals)
     curve_z = t_vals
-    curve_points = np.stack([curve_x, curve_y, curve_z], axis=1)
-
     radii = 4.2 + 2.2 * np.sin(0.1 * t_vals) + 1.2 * np.cos(0.25 * t_vals)
+
+    # Smooth entrance shaft curve connecting up to (0.0, 35.0, -5.0) at the bottom of 5km terrain sinkhole
+    shaft_mask = t_vals <= 18.0
+    s_factor = np.zeros_like(t_vals)
+    s_factor[shaft_mask] = (18.0 - t_vals[shaft_mask]) / 18.0
+    s_factor = s_factor * s_factor * (3.0 - 2.0 * s_factor)
+    val_norm = np.maximum(0.0, (18.0 - t_vals) / 18.0)
+    curve_y = (1.0 - s_factor) * curve_y + s_factor * (2.5 + 32.5 * (val_norm ** 1.4))
+    curve_x = (1.0 - s_factor) * curve_x + s_factor * 0.0
+    curve_z = (1.0 - s_factor) * curve_z + s_factor * (t_vals - 5.0 * val_norm)
+    radii = (1.0 - s_factor) * radii + s_factor * 8.0
+
+    curve_points = np.stack([curve_x, curve_y, curve_z], axis=1)
     kdtree = cKDTree(curve_points)
 
-    nx, ny, nz = 80, 80, 250
-    x_arr = np.linspace(-18, 18, nx, dtype=np.float32)
-    y_arr = np.linspace(-15, 15, ny, dtype=np.float32)
-    z_arr = np.linspace(-2, 102, nz, dtype=np.float32)
+    nx, ny, nz = 90, 110, 260
+    x_arr = np.linspace(-22, 22, nx, dtype=np.float32)
+    y_arr = np.linspace(-15, 42, ny, dtype=np.float32)
+    z_arr = np.linspace(-10, 104, nz, dtype=np.float32)
     X, Y, Z = np.meshgrid(x_arr, y_arr, z_arr, indexing="ij")
     grid_coords = np.stack([X.ravel(), Y.ravel(), Z.ravel()], axis=1)
 
@@ -145,15 +158,18 @@ def build_100m_cave_level(seed=42):
 
     sdf_rock = dists - target_radii + noise_3d * 0.85
 
+    # Cap cave rock mesh so it stays strictly underground below Y = 34.0m (underneath the surface terrain)
+    sdf_rock[Y >= 34.0] = -1.0
+
     verts_r, faces_r, normals_r, _ = marching_cubes(
         sdf_rock,
         level=0.0,
-        spacing=(36.0 / nx, 30.0 / ny, 104.0 / nz),
+        spacing=(44.0 / nx, 57.0 / ny, 114.0 / nz),
         allow_degenerate=False,
     )
-    verts_r[:, 0] -= 18.0
+    verts_r[:, 0] -= 22.0
     verts_r[:, 1] -= 15.0
-    verts_r[:, 2] -= 2.0
+    verts_r[:, 2] -= 10.0
 
     mesh_rock = trimesh.Trimesh(vertices=verts_r, faces=faces_r, vertex_normals=normals_r, process=True)
     mesh_rock = align_normals_inward(mesh_rock, curve_points)
@@ -183,12 +199,12 @@ def build_100m_cave_level(seed=42):
     verts_m, faces_m, normals_m, _ = marching_cubes(
         sdf_mud,
         level=0.0,
-        spacing=(36.0 / nx, 30.0 / ny, 104.0 / nz),
+        spacing=(44.0 / nx, 57.0 / ny, 114.0 / nz),
         allow_degenerate=False,
     )
-    verts_m[:, 0] -= 18.0
+    verts_m[:, 0] -= 22.0
     verts_m[:, 1] -= 15.0
-    verts_m[:, 2] -= 2.0
+    verts_m[:, 2] -= 10.0
 
     mesh_sediment = trimesh.Trimesh(vertices=verts_m, faces=faces_m, vertex_normals=normals_m, process=True)
     mesh_sediment.vertex_normals = trimesh.geometry.mean_vertex_normals(len(verts_m), faces_m, mesh_sediment.face_normals)
@@ -325,9 +341,9 @@ def create_godot_project_files(project_dir="cave-diving-game", curve_points=None
     os.makedirs(scenes_dir, exist_ok=True)
     os.makedirs(assets_dir, exist_ok=True)
 
-    spawn_x = 8.34
-    spawn_y = -2.20
-    spawn_z = 95.00
+    spawn_x = -180.00
+    spawn_y = 85.00
+    spawn_z = 150.00
 
     # 1. Main Cave Manager Script ('res://scripts/main_cave.gd')
     main_script_path = os.path.join(scripts_dir, "main_cave.gd")
@@ -336,24 +352,45 @@ def create_godot_project_files(project_dir="cave-diving-game", curve_points=None
 
 # Main Cave Manager: Realistic Subterranean PBR Materials & Precision Collisions
 
+@onready var terrain_surface = $Terrain5km
 @onready var cave_level = $CaveLevel
 @onready var player = $Player
 
 func _ready():
-	print("Initializing 100m Cave Diving Environment with Balanced Subterranean PBR Materials...")
-	_setup_cave_materials_and_collisions(cave_level)
+	print("Initializing 5km Surface Landscape & 100m Subterranean Collisions...")
+	if terrain_surface:
+		_setup_cave_materials_and_collisions(terrain_surface)
+	if cave_level:
+		_setup_cave_materials_and_collisions(cave_level)
 
 	if player:
 		player.global_transform.origin = Vector3({spawn_x}, {spawn_y}, {spawn_z})
-		player.rotation_degrees.y = 180.0
+		player.rotation_degrees.y = 45.0
 
 func _setup_cave_materials_and_collisions(node: Node):
 	if node is MeshInstance3D:
 		var mat = StandardMaterial3D.new()
 
-		if "Water" in node.name or "water" in node.name:
+		if "Terrain" in node.name or "NaturalTerrain" in node.name:
+			var tex = load("res://assets/terrain_texture.png")
+			if tex:
+				mat.albedo_texture = tex
+			else:
+				mat.vertex_color_use_as_albedo = true
+			mat.roughness = 0.85
+			mat.metallic = 0.0
+			mat.cull_mode = BaseMaterial3D.CULL_BACK
+			node.create_trimesh_collision()
+		elif "Tree" in node.name or "TerrainTrees" in node.name:
+			mat.vertex_color_use_as_albedo = true
+			mat.roughness = 0.85
+			mat.metallic = 0.0
+			mat.cull_mode = BaseMaterial3D.CULL_BACK
+			node.create_trimesh_collision()
+		elif "Lake" in node.name or "lake" in node.name or "SurfaceLake" in node.name:
 			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			mat.albedo_color = Color(0.10, 0.52, 0.78, 0.45) # Translucent cyan water
+			mat.vertex_color_use_as_albedo = true
+			mat.albedo_color = Color(1.0, 1.0, 1.0, 0.70)
 			mat.roughness = 0.05
 			mat.metallic = 0.0
 			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -381,7 +418,7 @@ func _setup_cave_materials_and_collisions(node: Node):
 			node.create_trimesh_collision()
 		else:
 			# Main Limestone Cave Walls Material
-			mat.cull_mode = BaseMaterial3D.CULL_BACK
+			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 			mat.albedo_color = Color(0.42, 0.36, 0.30)
 			mat.roughness = 0.85
 			mat.metallic = 0.0
@@ -396,12 +433,12 @@ func _setup_cave_materials_and_collisions(node: Node):
 """)
     print("  Created res://scripts/main_cave.gd")
 
-    # 2. Player Script with Camera-Synchronized Headlamp ('res://scripts/player.gd')
+    # 2. Player Script with 1st/3rd Person Views & 3D Diver Model ('res://scripts/player.gd')
     player_script_path = os.path.join(scripts_dir, "player.gd")
     with open(player_script_path, "w", encoding="utf-8") as f:
         f.write("""extends CharacterBody3D
 
-# First-Person Cave Diving Controller for Godot 4 (Balanced Headlamp)
+# First-Person and Third-Person Cave Diving Controller for Godot 4
 
 const WALK_SPEED = 4.5
 const SWIM_SPEED = 6.0
@@ -411,18 +448,22 @@ const MOUSE_SENSITIVITY = 0.002
 
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 var flashlight_on = true
+var is_swimming = false
+var third_person_view = false
 
 @onready var head = $Head
 @onready var camera = $Head/Camera3D
 @onready var flashlight = $Head/Camera3D/SpotLight3D
 @onready var head_omni = $Head/Camera3D/OmniLight3D
-@onready var distance_label = $CanvasLayer/Control/DistanceLabel
-@onready var flashlight_label = $CanvasLayer/Control/FlashlightLabel
+@onready var third_person_camera = $Head/Camera3D/ThirdPersonSpringArm3D/ThirdPersonCamera3D
 @onready var state_label = $CanvasLayer/Control/StateLabel
+@onready var flashlight_label = $CanvasLayer/Control/FlashlightLabel
+@onready var view_mode_label = $CanvasLayer/Control/ViewModeLabel
 
 func _ready():
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_update_headlamp_visibility()
+	_update_view_mode()
 
 func _update_headlamp_visibility():
 	if flashlight:
@@ -432,52 +473,88 @@ func _update_headlamp_visibility():
 	if flashlight_label:
 		flashlight_label.text = "[F] Headlamp: " + ("ON" if flashlight_on else "OFF")
 
-func _unhandled_input(event):
+func _toggle_view_mode() -> void:
+	third_person_view = !third_person_view
+	_update_view_mode()
+
+func _update_view_mode() -> void:
+	if camera:
+		camera.current = !third_person_view
+	if third_person_camera:
+		third_person_camera.current = third_person_view
+	if view_mode_label:
+		view_mode_label.text = "[V] View: " + ("THIRD PERSON" if third_person_view else "FIRST PERSON")
+
+func _input(event):
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 		head.rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
 		camera.rotate_x(-event.relative.y * MOUSE_SENSITIVITY)
 		camera.rotation.x = clamp(camera.rotation.x, deg_to_rad(-85), deg_to_rad(85))
 
-	if event.is_action_pressed("toggle_flashlight"):
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+	if (event is InputEventKey and event.pressed and event.keycode == KEY_F and not event.echo) or event.is_action_pressed("toggle_flashlight"):
 		flashlight_on = !flashlight_on
 		_update_headlamp_visibility()
 
-	if event.is_action_pressed("ui_cancel"):
+	if (event is InputEventKey and event.pressed and event.keycode == KEY_V and not event.echo) or event.is_action_pressed("toggle_view"):
+		_toggle_view_mode()
+
+	if event.is_action_pressed("ui_cancel") or (event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE):
 		if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		else:
 			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
+func _get_move_vector() -> Vector2:
+	var x = 0.0
+	var y = 0.0
+	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT): x += 1.0
+	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT): x -= 1.0
+	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN): y += 1.0
+	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP): y -= 1.0
+	return Vector2(x, y).normalized()
+
+func _is_sprint_pressed() -> bool:
+	return Input.is_physical_key_pressed(KEY_SHIFT) or Input.is_physical_key_pressed(KEY_CTRL)
+
+func _is_jump_pressed() -> bool:
+	return Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_E)
+
 func _physics_process(delta):
 	var z_pos = global_transform.origin.z
-	
-	var cx = 8.0 * sin(0.08 * z_pos) + 4.0 * sin(0.20 * z_pos)
-	var cy = 2.5 * cos(0.06 * z_pos) - 1.5 * sin(0.15 * z_pos)
-	var r_curr = 4.2 + 2.2 * sin(0.1 * z_pos) + 1.2 * cos(0.25 * z_pos)
-
-	var floor_y = cy - r_curr + 0.8
-	var ceiling_y = cy + r_curr - 0.9
-	var water_surface_y = cy - 0.10
-
+	var x_pos = global_transform.origin.x
 	var player_y = global_transform.origin.y
-	var is_underwater = (player_y < water_surface_y)
+
+	var dist_cenote = sqrt(x_pos * x_pos + (z_pos - (-5.0)) * (z_pos - (-5.0)))
+	var is_underwater = false
+
+	if dist_cenote < 25.0 and player_y < 45.2:
+		is_underwater = true
+	elif z_pos <= 10.0 and player_y < 35.0:
+		is_underwater = true
+
+	is_swimming = is_underwater
 
 	if state_label:
 		state_label.text = "[UNDERWATER DIVING]" if is_underwater else "[AIR / WALKING]"
 
+	var move_vec = _get_move_vector()
+	var is_sprint = _is_sprint_pressed()
+	var current_speed = SPRINT_SPEED if is_sprint else (SWIM_SPEED if is_underwater else WALK_SPEED)
+
 	if is_underwater:
-		var current_speed = SPRINT_SPEED if Input.is_action_pressed("sprint") else SWIM_SPEED
-		var input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
 		var camera_basis = camera.global_transform.basis
-		var swim_dir = (camera_basis.x * input_dir.x + camera_basis.z * input_dir.y).normalized()
+		var swim_dir = (camera_basis.x * move_vec.x + camera_basis.z * move_vec.y).normalized()
 
 		var vertical_move = 0.0
-		if Input.is_action_pressed("jump"):
+		if _is_jump_pressed():
 			vertical_move += 1.0
-		if Input.is_physical_key_pressed(KEY_C) or Input.is_physical_key_pressed(KEY_CTRL):
+		if Input.is_physical_key_pressed(KEY_C) or Input.is_physical_key_pressed(KEY_Q):
 			vertical_move -= 1.0
 
-		var idle_sink = -0.8 if vertical_move == 0.0 and input_dir.length() == 0 else 0.0
+		var idle_sink = -0.8 if vertical_move == 0.0 and move_vec.length() == 0 else 0.0
 
 		velocity.x = move_toward(velocity.x, swim_dir.x * current_speed, current_speed * 5.0 * delta)
 		velocity.y = move_toward(velocity.y, (swim_dir.y * current_speed) + (vertical_move * SWIM_SPEED) + idle_sink, SWIM_SPEED * 5.0 * delta)
@@ -486,12 +563,10 @@ func _physics_process(delta):
 	else:
 		velocity.y -= gravity * delta
 
-		if Input.is_action_just_pressed("jump") and is_on_floor():
+		if _is_jump_pressed() and is_on_floor():
 			velocity.y = JUMP_VELOCITY
 
-		var current_speed = SPRINT_SPEED if Input.is_action_pressed("sprint") else WALK_SPEED
-		var input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
-		var direction = (head.global_transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+		var direction = (head.global_transform.basis * Vector3(move_vec.x, 0, move_vec.y)).normalized()
 
 		if direction:
 			velocity.x = direction.x * current_speed
@@ -501,22 +576,16 @@ func _physics_process(delta):
 			velocity.z = move_toward(velocity.z, 0, current_speed * 6.0 * delta)
 
 	move_and_slide()
-
-	global_transform.origin.y = clamp(global_transform.origin.y, floor_y, ceiling_y)
-	global_transform.origin.x = clamp(global_transform.origin.x, cx - r_curr + 0.6, cx + r_curr - 0.6)
-
-	if distance_label:
-		var dist_m = clamp(global_transform.origin.z, 0.0, 100.0)
-		distance_label.text = "Cave Position: Z=%.1fm / 100m" % dist_m
 """)
     print("  Created res://scripts/player.gd")
 
-    # 3. Player Scene with Realistic Headlamp ('res://scenes/player.tscn')
+    # 3. Player Scene with 3D Diver Model & 3rd Person View ('res://scenes/player.tscn')
     player_scene_path = os.path.join(scenes_dir, "player.tscn")
     with open(player_scene_path, "w", encoding="utf-8") as f:
-        f.write(f"""[gd_scene load_steps=3 format=3 uid="uid://c88player100m"]
+        f.write("""[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/diver_model.gd" id="2_diver_model"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.45
@@ -533,22 +602,33 @@ shape = SubResource("CapsuleShape3D_player")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 
 [node name="Camera3D" type="Camera3D" parent="Head"]
+fov = 75.0
 
 [node name="SpotLight3D" type="SpotLight3D" parent="Head/Camera3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0, 0.0, -0.2)
-light_color = Color(1.0, 0.96, 0.88, 1)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.2, -0.1, -0.2)
+light_color = Color(0.95, 0.98, 1, 1)
 light_energy = 4.0
-light_specular = 0.4
 spot_range = 45.0
-spot_angle = 45.0
 spot_attenuation = 1.0
+spot_angle = 45.0
 
 [node name="OmniLight3D" type="OmniLight3D" parent="Head/Camera3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0, 0.1, -0.3)
-light_color = Color(0.95, 0.98, 1.0, 1)
+light_color = Color(0.90, 0.95, 1, 1)
 light_energy = 0.8
 omni_range = 15.0
 omni_attenuation = 1.2
+
+[node name="ThirdPersonSpringArm3D" type="SpringArm3D" parent="Head/Camera3D"]
+spring_length = 4.0
+margin = 0.2
+collision_mask = 1
+
+[node name="ThirdPersonCamera3D" type="Camera3D" parent="Head/Camera3D/ThirdPersonSpringArm3D"]
+fov = 75.0
+
+[node name="DiverVisual" type="Node3D" parent="."]
+script = ExtResource("2_diver_model")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
@@ -559,64 +639,71 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-
-[node name="Crosshair" type="ColorRect" parent="CanvasLayer/Control"]
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -2.0
-offset_top = -2.0
-offset_right = 2.0
-offset_bottom = 2.0
-grow_horizontal = 2
-grow_vertical = 2
-color = Color(1, 1, 1, 0.7)
-
-[node name="DistanceLabel" type="Label" parent="CanvasLayer/Control"]
-layout_mode = 0
-offset_left = 20.0
-offset_top = 20.0
-offset_right = 250.0
-offset_bottom = 50.0
-text = "Cave Position: Z=95.0m / 100m"
+mouse_filter = 2
 
 [node name="StateLabel" type="Label" parent="CanvasLayer/Control"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 50.0
+offset_top = 20.0
 offset_right = 300.0
-offset_bottom = 80.0
+offset_bottom = 50.0
+mouse_filter = 2
 text = "[UNDERWATER DIVING]"
 
 [node name="FlashlightLabel" type="Label" parent="CanvasLayer/Control"]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 80.0
-offset_right = 250.0
-offset_bottom = 110.0
+offset_top = 55.0
+offset_right = 300.0
+offset_bottom = 85.0
+mouse_filter = 2
 text = "[F] Headlamp: ON"
+
+[node name="ViewModeLabel" type="Label" parent="CanvasLayer/Control"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 90.0
+offset_right = 300.0
+offset_bottom = 120.0
+mouse_filter = 2
+text = "[V] View: FIRST PERSON"
+
+[node name="ControlsLabel" type="Label" parent="CanvasLayer/Control"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 125.0
+offset_right = 550.0
+offset_bottom = 155.0
+mouse_filter = 2
+text = "WASD: Move • Mouse: Look • Space: Up • C: Down • V: Toggle 1st/3rd View"
 """)
     print("  Created res://scenes/player.tscn")
 
-    # 4. Main Cave Scene with Realistic Ambient Environment ('res://scenes/main_cave.tscn')
+    # 4. Main Cave Scene with Realistic Ambient Environment & Sunlight ('res://scenes/main_cave.tscn')
     main_scene_path = os.path.join(scenes_dir, "main_cave.tscn")
     with open(main_scene_path, "w", encoding="utf-8") as f:
-        f.write(f"""[gd_scene load_steps=5 format=3 uid="uid://c88maincave100m"]
+        f.write(f"""[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/main_cave.gd" id="1_main_script"]
-[ext_resource type="PackedScene" uid="uid://c88player100m" path="res://scenes/player.tscn" id="2_player_inst"]
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="2_player_inst"]
 [ext_resource type="PackedScene" path="res://assets/cave_tunnel_100m.glb" id="3_cave_mesh"]
+[ext_resource type="PackedScene" path="res://assets/terrain_5km.glb" id="4_terrain_mesh"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sun"]
+sky_top_color = Color(0.25, 0.50, 0.85, 1)
+sky_horizon_color = Color(0.65, 0.78, 0.90, 1)
+ground_bottom_color = Color(0.15, 0.12, 0.10, 1)
+
+[sub_resource type="Sky" id="Sky_outdoor"]
+sky_material = SubResource("ProceduralSkyMaterial_sun")
 
 [sub_resource type="Environment" id="Environment_cave"]
-background_mode = 1
-background_color = Color(0.02, 0.03, 0.05, 1)
-ambient_light_source = 2
-ambient_light_color = Color(0.10, 0.14, 0.20, 1)
-ambient_light_energy = 0.12
-fog_enabled = false
+background_mode = 2
+sky = SubResource("Sky_outdoor")
+ambient_light_source = 3
+ambient_light_color = Color(0.40, 0.50, 0.65, 1)
+ambient_light_energy = 0.60
+tonemap_mode = 2
 
 [node name="MainCave" type="Node3D"]
 script = ExtResource("1_main_script")
@@ -624,12 +711,18 @@ script = ExtResource("1_main_script")
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_cave")
 
-[node name="CaveLevel" parent="." instance=ExtResource("3_cave_mesh")]
+[node name="SunLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 0, 120, 0)
+light_color = Color(1.0, 0.96, 0.88, 1)
+light_energy = 1.3
+shadow_enabled = true
+
+[node name="Terrain5km" parent="." instance=ExtResource("4_terrain_mesh")]
 
 [node name="Player" parent="." instance=ExtResource("2_player_inst")]
 transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, {spawn_x}, {spawn_y}, {spawn_z})
 """)
-    print("  Created res://scenes/main_cave.tscn (Balanced Subterranean Environment)")
+    print("  Created res://scenes/main_cave.tscn (Sunlit Surface & Subterranean Environment)")
 
     # 5. Update 'project.godot'
     project_godot_path = os.path.join(project_dir, "project.godot")
@@ -677,96 +770,83 @@ toggle_flashlight={
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":70,"physical_keycode":70,"key_label":0,"unicode":102,"echo":false,"script":null)]
 }
 
-[physics]
-3d/physics_engine="Jolt Physics"
+[rendering]
+renderer/rendering_method="forward_plus"
 """)
     print("  Updated project.godot")
 
 
 def build_web_preview(project_dir="cave-diving-game"):
-    """Create standalone HTML5 3D WebGL Explorer preview using Three.js."""
     print("\n[4/5] Building Standalone WebGL 3D Explorer Preview ('cave-diving-game/index.html')...")
-    html_path = os.path.join(project_dir, "index.html")
-    
-    with open(html_path, "w", encoding="utf-8") as f:
-        f.write("""<!DOCTYPE html>
+    index_path = os.path.join(project_dir, "index.html")
+
+    html_content = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 100m Cave Diving & Explorer Preview</title>
+    <title>3D Cave Diving & Surface Terrain Explorer (Godot 4 Parity)</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #040608; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background-color: #05080c; font-family: sans-serif; color: #fff; }
         #canvas-container { width: 100vw; height: 100vh; }
-        #hud {
-            position: absolute; top: 20px; left: 20px; color: #d0f0ff;
-            text-shadow: 1px 1px 4px rgba(0,0,0,0.9); font-size: 18px; pointer-events: none;
+        #overlay {
+            position: absolute; top: 15px; left: 15px;
+            background: rgba(5, 10, 18, 0.85); padding: 15px 20px;
+            border-radius: 8px; border: 1px solid #1a2936;
+            pointer-events: none; max-width: 400px;
         }
-        #crosshair {
-            position: absolute; top: 50%; left: 50%; width: 6px; height: 6px;
-            background: white; border-radius: 50%; transform: translate(-50%, -50%);
-            pointer-events: none; opacity: 0.7;
-        }
+        h2 { margin: 0 0 8px 0; font-size: 16px; color: #4db8ff; }
+        p { margin: 4px 0; font-size: 12px; color: #a0b2c6; }
+        kbd { background: #1f3347; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #fff; }
         #instructions {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #fff; background: rgba(5, 8, 12, 0.92); padding: 25px 40px; border-radius: 12px;
-            text-align: center; border: 1px solid #334; cursor: pointer; z-index: 10;
+            background: rgba(0,0,0,0.85); padding: 30px; border-radius: 12px;
+            text-align: center; cursor: pointer; border: 2px solid #4db8ff;
         }
-        #instructions h2 { margin-top: 0; color: #58c1e5; }
-        kbd { background: #223; padding: 2px 6px; border-radius: 4px; border: 1px solid #445; }
     </style>
+    <!-- Three.js & GLTFLoader CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
 </head>
 <body>
     <div id="canvas-container"></div>
-    <div id="crosshair"></div>
-    <div id="hud">
-        <div id="dist">Position: Z=95.0m / 100.0m</div>
-        <div id="state">[UNDERWATER DIVING]</div>
-        <div id="flash">[F] Headlamp: ON</div>
+    <div id="overlay">
+        <h2>3D Cave & Surface Terrain Explorer</h2>
+        <p>Connected 5km Surface Sinkhole & 100m Subterranean Cave</p>
+        <p><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> : Swim 3D inside cave</p>
+        <p><kbd>Space</kbd> / <kbd>E</kbd> : Ascend | <kbd>Shift</kbd> / <kbd>Q</kbd> : Descend</p>
+        <p><kbd>F</kbd> : Toggle Headlamp Spotlight</p>
     </div>
     <div id="instructions">
-        <h2>3D CAVE DIVING EXPLORER</h2>
-        <p>Click anywhere to start! Realistic subterranean cave lighting verified.</p>
-        <p><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> : Swim 3D inside cave</p>
-        <p><kbd>Space</kbd> : Swim UP / Jump | <kbd>C</kbd> : Dive DOWN</p>
-        <p><kbd>Shift</kbd> : Swim Fast | <kbd>F</kbd> : Toggle Headlamp</p>
+        <h1>Click to Explore 3D Connected Cave</h1>
+        <p>Balanced Subterranean Environment & Surface Sinkhole Portal</p>
     </div>
 
     <script>
         const container = document.getElementById('canvas-container');
-        const hudDist = document.getElementById('dist');
-        const hudFlash = document.getElementById('flash');
-        const hudState = document.getElementById('state');
         const instructions = document.getElementById('instructions');
 
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x040608);
+        scene.background = new THREE.Color(0x05080c);
+        scene.fog = new THREE.FogExp2(0x05080c, 0.008);
 
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
-        camera.position.set(8.34, -2.20, 95.0);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.shadowMap.enabled = true;
-        container.appendChild(renderer.domElement);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000.0);
+        camera.position.set(0.0, 33.0, -12.0);
 
         const controls = new THREE.PointerLockControls(camera, document.body);
-        instructions.addEventListener('click', () => controls.lock());
-        controls.addEventListener('lock', () => instructions.style.display = 'none');
-        controls.addEventListener('unlock', () => instructions.style.display = 'block');
+        instructions.addEventListener('click', () => { controls.lock(); });
+        controls.addEventListener('lock', () => { instructions.style.display = 'none'; });
+        controls.addEventListener('unlock', () => { instructions.style.display = 'block'; });
 
-        // Subterranean Ambient Base Glow
-        const ambientLight = new THREE.AmbientLight(0x1a2433, 0.12);
+        // Ambient Light
+        const ambientLight = new THREE.AmbientLight(0x1a2433, 0.6);
         scene.add(ambientLight);
 
-        // Player Headlamp SpotLight & Forward Offset Omni Fill attached directly to Camera
-        const flashlight = new THREE.SpotLight(0xfff5e6, 4.0, 45, Math.PI / 4.0, 0.5, 1.0);
-        flashlight.position.set(0.0, 0.0, -0.2);
-        flashlight.target.position.set(0, 0, -10);
+        // Diver Headlamp
+        const flashlight = new THREE.SpotLight(0xf0f8ff, 4.0, 45, Math.PI / 4, 0.5, 1.0);
+        flashlight.position.set(0.2, -0.1, -0.2);
+        flashlight.target.position.set(0, 0, -5);
         camera.add(flashlight);
         camera.add(flashlight.target);
 
@@ -778,33 +858,31 @@ def build_web_preview(project_dir="cave-diving-game"):
 
         let flashlightOn = true;
 
-        // Load GLB
+        // Load GLB Models
         const loader = new THREE.GLTFLoader();
+
+        loader.load('assets/terrain_5km.glb', (gltf) => {
+            const terrainScene = gltf.scene;
+            scene.add(terrainScene);
+        });
+
         loader.load('assets/cave_tunnel_100m.glb', (gltf) => {
             const caveScene = gltf.scene;
             caveScene.traverse((child) => {
                 if (child.isMesh) {
                     if (child.name.includes("Water")) {
                         child.material = new THREE.MeshStandardMaterial({
-                            color: 0x1985c7, roughness: 0.05, metalness: 0.0,
+                            color: 0x1985c7, roughness: 0.05,
                             transparent: true, opacity: 0.45, side: THREE.DoubleSide
                         });
                     } else if (child.name.includes("Sediment")) {
-                        child.material = new THREE.MeshStandardMaterial({
-                            color: 0x59422e, roughness: 0.70, metalness: 0.0
-                        });
+                        child.material = new THREE.MeshStandardMaterial({ color: 0x59422e, roughness: 0.70 });
                     } else if (child.name.includes("Speleothems")) {
-                        child.material = new THREE.MeshStandardMaterial({
-                            color: 0x8c806b, roughness: 0.60, metalness: 0.0
-                        });
+                        child.material = new THREE.MeshStandardMaterial({ color: 0x8c806b, roughness: 0.60 });
                     } else if (child.name.includes("Boulders")) {
-                        child.material = new THREE.MeshStandardMaterial({
-                            color: 0x7a6b59, roughness: 0.75, metalness: 0.0
-                        });
+                        child.material = new THREE.MeshStandardMaterial({ color: 0x7a6b59, roughness: 0.75 });
                     } else {
-                        child.material = new THREE.MeshStandardMaterial({
-                            color: 0x6b5c4d, roughness: 0.85, metalness: 0.0
-                        });
+                        child.material = new THREE.MeshStandardMaterial({ color: 0x6b5c4d, roughness: 0.85 });
                     }
                 }
             });
@@ -812,8 +890,6 @@ def build_web_preview(project_dir="cave-diving-game"):
         });
 
         let moveFwd = false, moveBwd = false, moveLeft = false, moveRight = false, moveUp = false, moveDown = false, isSprint = false;
-        const velocity = new THREE.Vector3();
-        const gravity = 9.8;
 
         document.addEventListener('keydown', (e) => {
             switch(e.code) {
@@ -821,14 +897,12 @@ def build_web_preview(project_dir="cave-diving-game"):
                 case 'KeyS': moveBwd = true; break;
                 case 'KeyA': moveLeft = true; break;
                 case 'KeyD': moveRight = true; break;
-                case 'Space': moveUp = true; break;
-                case 'KeyC': case 'ControlLeft': moveDown = true; break;
-                case 'ShiftLeft': isSprint = true; break;
+                case 'Space': case 'KeyE': moveUp = true; break;
+                case 'ShiftLeft': case 'KeyQ': moveDown = true; break;
                 case 'KeyF':
                     flashlightOn = !flashlightOn;
                     flashlight.visible = flashlightOn;
                     headOmni.visible = flashlightOn;
-                    hudFlash.innerText = '[F] Headlamp: ' + (flashlightOn ? 'ON' : 'OFF');
                     break;
             }
         });
@@ -839,34 +913,20 @@ def build_web_preview(project_dir="cave-diving-game"):
                 case 'KeyS': moveBwd = false; break;
                 case 'KeyA': moveLeft = false; break;
                 case 'KeyD': moveRight = false; break;
-                case 'Space': moveUp = false; break;
-                case 'KeyC': case 'ControlLeft': moveDown = false; break;
-                case 'ShiftLeft': isSprint = false; break;
+                case 'Space': case 'KeyE': moveUp = false; break;
+                case 'ShiftLeft': case 'KeyQ': moveDown = false; break;
             }
         });
 
         let prevTime = performance.now();
         function animate() {
             requestAnimationFrame(animate);
+
             const time = performance.now();
             const delta = (time - prevTime) / 1000;
             prevTime = time;
 
             if (controls.isLocked) {
-                const zPos = camera.position.z;
-                const cx = 8.0 * Math.sin(0.08 * zPos) + 4.0 * Math.sin(0.20 * zPos);
-                const cy = 2.5 * Math.cos(0.06 * zPos) - 1.5 * Math.sin(0.15 * zPos);
-                const rCurr = 4.2 + 2.2 * Math.sin(0.1 * zPos) + 1.2 * Math.cos(0.25 * zPos);
-
-                const floorY = cy - rCurr + 0.8;
-                const ceilingY = cy + rCurr - 0.9;
-                const waterSurfaceY = cy - 0.10;
-
-                const isUnderwater = (camera.position.y < waterSurfaceY);
-                hudState.innerText = isUnderwater ? '[UNDERWATER DIVING]' : '[AIR / WALKING]';
-
-                if (isUnderwater) {
-                    const speed = isSprint ? 8.5 : 5.5;
                     velocity.x -= velocity.x * 6.0 * delta;
                     velocity.y -= velocity.y * 6.0 * delta;
                     velocity.z -= velocity.z * 6.0 * delta;
@@ -914,10 +974,13 @@ def build_web_preview(project_dir="cave-diving-game"):
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
+        animate();
     </script>
 </body>
 </html>
-""")
+"""
+    with open(index_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
     print("  Created cave-diving-game/index.html")
 
 
@@ -927,13 +990,18 @@ def main():
     print(" Project Path: 'cave-diving-game/'")
     print("=================================================================")
 
+    assets_dir = "cave-diving-game/assets"
+    os.makedirs(assets_dir, exist_ok=True)
+
+    # 0. Build 5km Surface Terrain GLB with Connected Sinkhole
+    print("\n[0/5] Generating 5km Natural Surface Terrain GLB with Connected Cave Sinkhole...")
+    tx, th, tz = build_terrain(320, 20260804)
+    export_mesh(tx, th, tz, Path(os.path.join(assets_dir, "terrain_5km.glb")))
+
     # 1. Build 100m Cave Tunnel Level Scene
     cave_scene, curve_points, radii = build_100m_cave_level(seed=2026)
 
     # 2. Save Mesh Files to 'cave-diving-game/assets/'
-    assets_dir = "cave-diving-game/assets"
-    os.makedirs(assets_dir, exist_ok=True)
-
     glb_level_path = os.path.join(assets_dir, "cave_tunnel_100m.glb")
 
     print(f"\n[5/5] Exporting 100m Cave Level Scene GLB...")
@@ -950,6 +1018,7 @@ def main():
     print(" 3D CAVE GAME GENERATION COMPLETE!")
     print(" Godot 4 Main Scene: cave-diving-game/scenes/main_cave.tscn")
     print(" 100m Level Model:   cave-diving-game/assets/cave_tunnel_100m.glb")
+    print(" 5km Terrain Model:  cave-diving-game/assets/terrain_5km.glb")
     print(" WebGL 3D Preview:   cave-diving-game/index.html")
     print("=================================================================")
 
