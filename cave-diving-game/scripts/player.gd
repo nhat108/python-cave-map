@@ -8,6 +8,9 @@ const SPRINT_SPEED = 8.5
 const JUMP_VELOCITY = 5.0
 const MOUSE_SENSITIVITY = 0.002
 
+# Must match WATER_LEVEL in terrain_surface_generator.py's build_terrain().
+const WATER_LEVEL = 12.0
+
 var gravity = ProjectSettings.get_setting("physics/3d/default_gravity")
 var flashlight_on = true
 var is_swimming = false
@@ -84,18 +87,26 @@ func _is_sprint_pressed() -> bool:
 func _is_jump_pressed() -> bool:
 	return Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_E)
 
+func _is_over_submerged_ground(pos: Vector3) -> bool:
+	var space_state = get_world_3d().direct_space_state
+	var query = PhysicsRayQueryParameters3D.create(pos + Vector3(0.0, 3.0, 0.0), pos - Vector3(0.0, 60.0, 0.0))
+	query.exclude = [get_rid()]
+	var result = space_state.intersect_ray(query)
+	if result.is_empty():
+		return false
+	# The lake floor is clamped well below WATER_LEVEL wherever the lake actually exists
+	# (see build_terrain()'s lake_mask), so this margin comfortably separates real lake
+	# floor from ordinary dry terrain.
+	return result.position.y < WATER_LEVEL - 1.0
+
 func _physics_process(delta):
-	var z_pos = global_transform.origin.z
-	var x_pos = global_transform.origin.x
-	var player_y = global_transform.origin.y
+	var pos = global_transform.origin
 
-	var dist_cenote = sqrt(x_pos * x_pos + (z_pos - (-5.0)) * (z_pos - (-5.0)))
-	var is_underwater = false
-
-	if dist_cenote < 25.0 and player_y < 45.2:
-		is_underwater = true
-	elif z_pos <= 10.0 and player_y < 35.0:
-		is_underwater = true
+	# The lake's actual shape comes from noise-driven terrain, not a clean ellipse, so an
+	# approximated basin formula misses real water at the edges. Raycast against the actual
+	# terrain collision instead: if the ground below is submerged and we're near/below the
+	# water surface, we're in the lake.
+	var is_underwater = pos.y < WATER_LEVEL + 0.3 and _is_over_submerged_ground(pos)
 
 	is_swimming = is_underwater
 
@@ -118,8 +129,16 @@ func _physics_process(delta):
 
 		var idle_sink = -0.8 if vertical_move == 0.0 and move_vec.length() == 0 else 0.0
 
+		var target_vertical = (swim_dir.y * current_speed) + (vertical_move * SWIM_SPEED) + idle_sink
+		if target_vertical > 0.0:
+			# Fade out upward swim thrust over the last 1.2m below the surface, so holding
+			# jump lets the player rise to and float at the surface instead of launching
+			# out of the water and flying into the air on residual velocity.
+			var depth_below_surface = WATER_LEVEL - pos.y
+			target_vertical *= clamp(depth_below_surface / 1.2, 0.0, 1.0)
+
 		velocity.x = move_toward(velocity.x, swim_dir.x * current_speed, current_speed * 5.0 * delta)
-		velocity.y = move_toward(velocity.y, (swim_dir.y * current_speed) + (vertical_move * SWIM_SPEED) + idle_sink, SWIM_SPEED * 5.0 * delta)
+		velocity.y = move_toward(velocity.y, target_vertical, SWIM_SPEED * 5.0 * delta)
 		velocity.z = move_toward(velocity.z, swim_dir.z * current_speed, current_speed * 5.0 * delta)
 
 	else:

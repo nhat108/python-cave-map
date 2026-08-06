@@ -7,6 +7,9 @@ extends Node3D
 
 const MODEL_LAYER: int = 2
 const FRONT: float = -1.0
+# Must match WATER_LEVEL in player.gd / terrain_surface_generator.py.
+const WATER_SURFACE_Y: float = 12.0
+const SURFACE_SWIM_DEPTH: float = 2.0
 
 @export_category("Model")
 @export var body_height: float = 1.82
@@ -212,10 +215,6 @@ func _add_arm(spine: Node3D, side: float) -> void:
 	_add_joint_bulb(prefix + "WristBulb", wrist, 0.086, suit_material)
 	_add_cylinder(prefix + "WristSeal", wrist, Vector3.ZERO, 0.078, 0.05, rubber_material)
 	_add_ellipsoid(prefix + "Glove", wrist, Vector3(0.0, -0.09, -0.018), Vector3(0.082, 0.115, 0.06), rubber_material)
-	for finger in range(4):
-		var fx: float = (float(finger) - 1.5) * 0.027
-		_add_capsule(prefix + "Finger%d" % finger, wrist, Vector3(fx, -0.19, -0.035), 0.017, 0.10, rubber_material)
-	_add_capsule(prefix + "Thumb", wrist, Vector3(side * 0.085, -0.12, -0.02), 0.022, 0.09, rubber_material, Vector3(0.0, 0.0, deg_to_rad(side * 35.0)))
 
 func _add_leg(pelvis: Node3D, side: float) -> void:
 	var prefix := "Left" if side < 0.0 else "Right"
@@ -282,6 +281,7 @@ func _process(delta: float) -> void:
 
 	var swim_value: Variant = diver.get("is_swimming")
 	var is_swimming: bool = bool(swim_value) if swim_value != null else false
+	var near_surface: bool = diver.global_position.y > WATER_SURFACE_Y - SURFACE_SWIM_DEPTH
 	var horizontal_speed: float = Vector2(diver.velocity.x, diver.velocity.z).length()
 	var is_moving := horizontal_speed > walk_threshold
 	var is_sprinting := horizontal_speed > sprint_threshold
@@ -299,7 +299,10 @@ func _process(delta: float) -> void:
 		rotation.y = lerp_angle(rotation.y, head.rotation.y, clamp(delta * 10.0, 0.0, 1.0))
 
 	if is_swimming:
-		_animate_swim(delta, horizontal_speed)
+		if near_surface:
+			_animate_swim_surface(delta, horizontal_speed)
+		else:
+			_animate_swim(delta, horizontal_speed)
 	elif not on_floor:
 		_animate_air(diver.velocity.y)
 	elif is_moving:
@@ -314,8 +317,8 @@ func _animate_idle(delta: float) -> void:
 	_pose("HeadJoint", Vector3(-breath * 0.2, sin(breath_time * 0.31) * 0.025, 0.0), delta, 3.0)
 	_pose("LeftShoulder", Vector3(breath, deg_to_rad(-3.0), deg_to_rad(-11.0)), delta, 5.0)
 	_pose("RightShoulder", Vector3(-breath, deg_to_rad(3.0), deg_to_rad(11.0)), delta, 5.0)
-	_pose("LeftElbow", Vector3(deg_to_rad(-8.0), 0.0, deg_to_rad(-2.0)), delta, 5.0)
-	_pose("RightElbow", Vector3(deg_to_rad(-8.0), 0.0, deg_to_rad(2.0)), delta, 5.0)
+	_pose("LeftElbow", Vector3(deg_to_rad(8.0), 0.0, deg_to_rad(-2.0)), delta, 5.0)
+	_pose("RightElbow", Vector3(deg_to_rad(8.0), 0.0, deg_to_rad(2.0)), delta, 5.0)
 	_pose_legs_neutral(delta)
 
 func _animate_walk(delta: float, speed: float, sprinting: bool) -> void:
@@ -349,7 +352,12 @@ func _pose_leg(prefix: String, swing: float, delta: float, sprinting: bool) -> v
 func _pose_arm(prefix: String, swing: float, delta: float, sprinting: bool) -> void:
 	var side: float = -1.0 if prefix == "Left" else 1.0
 	_pose(prefix + "Shoulder", Vector3(swing, 0.0, deg_to_rad(side * 11.0)), delta, 12.0)
-	_pose(prefix + "Elbow", Vector3(-abs(swing) * (0.85 if sprinting else 0.48) - 0.10, 0.0, deg_to_rad(side * 2.0)), delta, 13.0)
+	# Elbow stays bent ~90 degrees through the whole swing like a natural running arm
+	# carriage, instead of straightening out near the middle of the stride. Positive
+	# elbow.x is the forward bend direction for this joint chain (verified: negative
+	# bends the forearm toward the back, which is what caused the reversed-looking arms).
+	var elbow_base: float = 1.55 if sprinting else 1.15
+	_pose(prefix + "Elbow", Vector3(elbow_base - abs(swing) * 0.25, 0.0, deg_to_rad(side * 2.0)), delta, 13.0)
 	_pose(prefix + "Wrist", Vector3(abs(swing) * 0.16, 0.0, 0.0), delta, 12.0)
 
 func _animate_air(vertical_velocity: float) -> void:
@@ -362,8 +370,8 @@ func _animate_air(vertical_velocity: float) -> void:
 	_pose_now("RightKnee", Vector3(0.58, 0.0, 0.0))
 	_pose_now("LeftShoulder", Vector3(-0.22, 0.0, deg_to_rad(-22.0)))
 	_pose_now("RightShoulder", Vector3(-0.22, 0.0, deg_to_rad(22.0)))
-	_pose_now("LeftElbow", Vector3(-0.35, 0.0, 0.0))
-	_pose_now("RightElbow", Vector3(-0.35, 0.0, 0.0))
+	_pose_now("LeftElbow", Vector3(0.35, 0.0, 0.0))
+	_pose_now("RightElbow", Vector3(0.35, 0.0, 0.0))
 
 func _animate_swim(delta: float, speed: float) -> void:
 	generated_root.position = generated_root.position.lerp(Vector3.ZERO, clamp(delta * 6.0, 0.0, 1.0))
@@ -389,10 +397,45 @@ func _animate_swim(delta: float, speed: float) -> void:
 	# Alternating relaxed cave-diving stroke, less cartoony than a wide windmill.
 	_pose("LeftShoulder", Vector3(-0.48 + stroke * 0.30, 0.14, deg_to_rad(-18.0)), delta, 8.0)
 	_pose("RightShoulder", Vector3(-0.48 - stroke * 0.30, -0.14, deg_to_rad(18.0)), delta, 8.0)
-	_pose("LeftElbow", Vector3(-0.58 - stroke * 0.25, 0.0, -0.08), delta, 9.0)
-	_pose("RightElbow", Vector3(-0.58 + stroke * 0.25, 0.0, 0.08), delta, 9.0)
+	_pose("LeftElbow", Vector3(0.58 + stroke * 0.25, 0.0, -0.08), delta, 9.0)
+	_pose("RightElbow", Vector3(0.58 - stroke * 0.25, 0.0, 0.08), delta, 9.0)
 	_pose("LeftWrist", Vector3(0.16, 0.0, -0.08), delta, 9.0)
 	_pose("RightWrist", Vector3(0.16, 0.0, 0.08), delta, 9.0)
+
+func _animate_swim_surface(delta: float, speed: float) -> void:
+	# "Boi sai" freestyle stroke, used near the water surface instead of the tucked-arm
+	# dive stroke: a full overhead arm rotation per side plus a quicker flutter kick.
+	generated_root.position = generated_root.position.lerp(Vector3.ZERO, clamp(delta * 6.0, 0.0, 1.0))
+	var active := speed > walk_threshold
+	var rate: float = 4.4 if active else 1.6
+	animation_time += delta * rate * animation_speed
+	var phase: float = animation_time
+	var kick: float = sin(phase * 4.0)
+
+	_pose("Spine", Vector3(deg_to_rad(8.0), 0.0, sin(phase * 2.0) * 0.14), delta, 7.0)
+	_pose("HeadJoint", Vector3(deg_to_rad(-8.0), sin(phase * 2.0) * 0.16, 0.0), delta, 7.0)
+
+	_pose("LeftHip", Vector3(kick * 0.14, 0.0, 0.0), delta, 11.0)
+	_pose("RightHip", Vector3(-kick * 0.14, 0.0, 0.0), delta, 11.0)
+	_pose("LeftKnee", Vector3(max(0.0, -kick) * 0.26 + 0.05, 0.0, 0.0), delta, 12.0)
+	_pose("RightKnee", Vector3(max(0.0, kick) * 0.26 + 0.05, 0.0, 0.0), delta, 12.0)
+	_pose("LeftAnkle", Vector3(-kick * 0.18, 0.0, 0.0), delta, 13.0)
+	_pose("RightAnkle", Vector3(kick * 0.18, 0.0, 0.0), delta, 13.0)
+	_pose("LeftFin", Vector3(-kick * 0.24, 0.0, 0.0), delta, 14.0)
+	_pose("RightFin", Vector3(kick * 0.24, 0.0, 0.0), delta, 14.0)
+
+	# Full overhead windmill, left/right arms a half-cycle apart. Set directly (not
+	# through _pose's lerp_angle) so the rotation keeps winding forward every cycle
+	# instead of lerp taking the short way back around through zero. Negated so the
+	# arms sweep forward-over-back instead of the reverse.
+	var left_cycle: float = fmod(-phase, TAU)
+	var right_cycle: float = fmod(-phase + PI, TAU)
+	_pose_now("LeftShoulder", Vector3(left_cycle, 0.0, deg_to_rad(-16.0) - max(0.0, sin(left_cycle)) * 0.3))
+	_pose_now("RightShoulder", Vector3(right_cycle, 0.0, deg_to_rad(16.0) + max(0.0, sin(right_cycle)) * 0.3))
+	_pose("LeftElbow", Vector3(0.65 - sin(left_cycle) * 0.45, 0.0, 0.0), delta, 14.0)
+	_pose("RightElbow", Vector3(0.65 - sin(right_cycle) * 0.45, 0.0, 0.0), delta, 14.0)
+	_pose("LeftWrist", Vector3(sin(left_cycle) * 0.2, 0.0, 0.0), delta, 12.0)
+	_pose("RightWrist", Vector3(sin(right_cycle) * 0.2, 0.0, 0.0), delta, 12.0)
 
 func _pose_legs_neutral(delta: float) -> void:
 	for prefix in ["Left", "Right"]:

@@ -14,8 +14,10 @@ func _ready():
 		_setup_cave_materials_and_collisions(cave_level)
 
 	if player:
-		player.global_transform.origin = Vector3(-180.0, 85.0, 150.0)
-		player.rotation_degrees.y = 45.0
+		# At the lake surface directly above the cave entrance hole (world ~(0,-4.5)),
+		# so testing the cave doesn't require swimming across the whole lake first.
+		player.global_transform.origin = Vector3(0.0, 13.0, -4.5)
+		player.rotation_degrees.y = 0.0
 
 func _setup_cave_materials_and_collisions(node: Node):
 	if node is MeshInstance3D:
@@ -42,6 +44,15 @@ func _setup_cave_materials_and_collisions(node: Node):
 			mat.vertex_color_use_as_albedo = true
 			mat.albedo_color = Color(1.0, 1.0, 1.0, 0.70)
 			mat.roughness = 0.05
+			mat.metallic = 0.0
+			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		elif "Water" in node.name:
+			# Underground pool: dark and murky, not a bright sky-reflecting surface
+			# like the outdoor lake.
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.albedo_color = Color(0.03, 0.10, 0.14, 0.85)
+			mat.roughness = 0.25
 			mat.metallic = 0.0
 			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

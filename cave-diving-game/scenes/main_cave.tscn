@@ -1,14 +1,14 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene format=3 uid="uid://0gmsarqx58ut"]
 
-[ext_resource type="Script" path="res://scripts/main_cave.gd" id="1_main_script"]
+[ext_resource type="Script" uid="uid://c21q61rpyesuv" path="res://scripts/main_cave.gd" id="1_main_script"]
 [ext_resource type="PackedScene" path="res://scenes/player.tscn" id="2_player_inst"]
-[ext_resource type="PackedScene" path="res://assets/cave_tunnel_100m.glb" id="3_cave_mesh"]
-[ext_resource type="PackedScene" path="res://assets/terrain_5km.glb" id="4_terrain_mesh"]
+[ext_resource type="PackedScene" path="res://assets/cave_passage_v2.glb" id="3_cave_mesh"]
+[ext_resource type="PackedScene" uid="uid://brfmxjguciej1" path="res://assets/terrain_5km.glb" id="4_terrain_mesh"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sun"]
-sky_top_color = Color(0.25, 0.50, 0.85, 1)
-sky_horizon_color = Color(0.65, 0.78, 0.90, 1)
-ground_bottom_color = Color(0.15, 0.12, 0.10, 1)
+sky_top_color = Color(0.25, 0.5, 0.85, 1)
+sky_horizon_color = Color(0.65, 0.78, 0.9, 1)
+ground_bottom_color = Color(0.15, 0.12, 0.1, 1)
 
 [sub_resource type="Sky" id="Sky_outdoor"]
 sky_material = SubResource("ProceduralSkyMaterial_sun")
@@ -17,23 +17,45 @@ sky_material = SubResource("ProceduralSkyMaterial_sun")
 background_mode = 2
 sky = SubResource("Sky_outdoor")
 ambient_light_source = 3
-ambient_light_color = Color(0.40, 0.50, 0.65, 1)
-ambient_light_energy = 0.60
+ambient_light_color = Color(0.4, 0.5, 0.65, 1)
+ambient_light_energy = 0.6
 tonemap_mode = 2
 
-[node name="MainCave" type="Node3D"]
+[sub_resource type="BoxShape3D" id="BoxShape3D_safety_floor"]
+size = Vector3(1200, 10, 1200)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_bedrock"]
+albedo_color = Color(0.1, 0.09, 0.08, 1)
+roughness = 0.95
+
+[sub_resource type="BoxMesh" id="BoxMesh_safety_floor"]
+size = Vector3(1200, 10, 1200)
+
+[node name="MainCave" type="Node3D" unique_id=824077806]
 script = ExtResource("1_main_script")
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=875245342]
 environment = SubResource("Environment_cave")
 
-[node name="SunLight" type="DirectionalLight3D" parent="."]
+[node name="SunLight" type="DirectionalLight3D" parent="." unique_id=1325062854]
 transform = Transform3D(0.866, -0.354, 0.354, 0, 0.707, 0.707, -0.5, -0.612, 0.612, 0, 120, 0)
-light_color = Color(1.0, 0.96, 0.88, 1)
+light_color = Color(1, 0.96, 0.88, 1)
 light_energy = 1.3
 shadow_enabled = true
 
-[node name="Terrain5km" parent="." instance=ExtResource("4_terrain_mesh")]
+[node name="Terrain5km" parent="." unique_id=1173701199 instance=ExtResource("4_terrain_mesh")]
 
-[node name="Player" parent="." instance=ExtResource("2_player_inst")]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -180.0, 85.0, 150.0)
+[node name="CaveLevel" parent="." unique_id=345771933 instance=ExtResource("3_cave_mesh")]
+
+[node name="SafetyFloor" type="StaticBody3D" parent="." unique_id=264321612]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -55, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="SafetyFloor" unique_id=1269897278]
+shape = SubResource("BoxShape3D_safety_floor")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="SafetyFloor" unique_id=651440512]
+material_override = SubResource("StandardMaterial3D_bedrock")
+mesh = SubResource("BoxMesh_safety_floor")
+
+[node name="Player" parent="." unique_id=745837735 instance=ExtResource("2_player_inst")]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 49.522095, 4.8778534, -40.328247)
