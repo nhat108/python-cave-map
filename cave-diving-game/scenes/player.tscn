@@ -1,7 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://scripts/diver_model.gd" id="2_diver_model"]
+[ext_resource type="Script" path="res://scripts/touch_joystick.gd" id="3_touch_joystick"]
+[ext_resource type="Script" path="res://scripts/touch_look_area.gd" id="4_touch_look_area"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.45
@@ -92,3 +94,100 @@ offset_right = 550.0
 offset_bottom = 155.0
 mouse_filter = 2
 text = "WASD: Move • Mouse: Look • Space: Up • C: Down • V: Toggle 1st/3rd View"
+
+[node name="TouchUI" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+visible = false
+
+[node name="LookArea" type="Control" parent="CanvasLayer/TouchUI"]
+layout_mode = 1
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("4_touch_look_area")
+
+[node name="Joystick" type="Control" parent="CanvasLayer/TouchUI"]
+layout_mode = 1
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 40.0
+offset_top = -200.0
+offset_right = 200.0
+offset_bottom = -40.0
+grow_vertical = 0
+script = ExtResource("3_touch_joystick")
+
+[node name="ButtonUp" type="Button" parent="CanvasLayer/TouchUI"]
+layout_mode = 1
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -150.0
+offset_top = -200.0
+offset_right = -40.0
+offset_bottom = -120.0
+grow_horizontal = 0
+grow_vertical = 0
+self_modulate = Color(1, 1, 1, 0.6)
+text = "UP ▲"
+
+[node name="ButtonDown" type="Button" parent="CanvasLayer/TouchUI"]
+layout_mode = 1
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -150.0
+offset_top = -110.0
+offset_right = -40.0
+offset_bottom = -30.0
+grow_horizontal = 0
+grow_vertical = 0
+self_modulate = Color(1, 1, 1, 0.6)
+text = "DOWN ▼"
+
+[node name="ButtonSprint" type="Button" parent="CanvasLayer/TouchUI"]
+layout_mode = 1
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -270.0
+offset_top = -155.0
+offset_right = -170.0
+offset_bottom = -85.0
+grow_horizontal = 0
+grow_vertical = 0
+self_modulate = Color(1, 1, 1, 0.6)
+text = "SPRINT"
+
+[node name="ButtonFlashlight" type="Button" parent="CanvasLayer/TouchUI"]
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -140.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 70.0
+grow_horizontal = 0
+self_modulate = Color(1, 1, 1, 0.6)
+text = "LIGHT"
+
+[node name="ButtonView" type="Button" parent="CanvasLayer/TouchUI"]
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -140.0
+offset_top = 80.0
+offset_right = -20.0
+offset_bottom = 130.0
+grow_horizontal = 0
+self_modulate = Color(1, 1, 1, 0.6)
+text = "VIEW"

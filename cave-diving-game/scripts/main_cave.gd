@@ -61,21 +61,21 @@ func _setup_cave_materials_and_collisions(node: Node):
 			mat.albedo_color = Color(0.35, 0.26, 0.18)
 			mat.roughness = 0.70
 			mat.metallic = 0.0
-			mat.specular = 0.25
+			mat.metallic_specular = 0.25
 			node.create_trimesh_collision()
 		elif "Boulders" in node.name or "boulder" in node.name:
 			mat.cull_mode = BaseMaterial3D.CULL_BACK
 			mat.albedo_color = Color(0.48, 0.42, 0.35)
 			mat.roughness = 0.75
 			mat.metallic = 0.0
-			mat.specular = 0.25
+			mat.metallic_specular = 0.25
 			node.create_trimesh_collision()
 		elif "Speleothems" in node.name:
 			mat.cull_mode = BaseMaterial3D.CULL_BACK
 			mat.albedo_color = Color(0.55, 0.50, 0.42)
 			mat.roughness = 0.60
 			mat.metallic = 0.0
-			mat.specular = 0.35
+			mat.metallic_specular = 0.35
 			node.create_trimesh_collision()
 		else:
 			# Main Limestone Cave Walls Material
@@ -83,7 +83,7 @@ func _setup_cave_materials_and_collisions(node: Node):
 			mat.albedo_color = Color(0.42, 0.36, 0.30)
 			mat.roughness = 0.85
 			mat.metallic = 0.0
-			mat.specular = 0.25
+			mat.metallic_specular = 0.25
 			node.create_trimesh_collision()
 
 		node.material_override = mat

@@ -7,6 +7,7 @@ const SWIM_SPEED = 6.0
 const SPRINT_SPEED = 8.5
 const JUMP_VELOCITY = 5.0
 const MOUSE_SENSITIVITY = 0.002
+const TOUCH_LOOK_SENSITIVITY = 0.004
 
 # Must match WATER_LEVEL in terrain_surface_generator.py's build_terrain().
 const WATER_LEVEL = 12.0
@@ -16,6 +17,15 @@ var flashlight_on = true
 var is_swimming = false
 var third_person_view = false
 
+# Set by the on-screen touch controls (touch_joystick.gd / touch_look_area.gd / the
+# CanvasLayer/TouchUI buttons); stay zero/false on desktop so keyboard/mouse behavior is
+# unchanged.
+var touch_move_vector := Vector2.ZERO
+var touch_jump_held := false
+var touch_down_held := false
+var touch_sprint_held := false
+var _is_touch_device := false
+
 @onready var head = $Head
 @onready var camera = $Head/Camera3D
 @onready var flashlight = $Head/Camera3D/SpotLight3D
@@ -24,11 +34,46 @@ var third_person_view = false
 @onready var state_label = $CanvasLayer/Control/StateLabel
 @onready var flashlight_label = $CanvasLayer/Control/FlashlightLabel
 @onready var view_mode_label = $CanvasLayer/Control/ViewModeLabel
+@onready var controls_label = $CanvasLayer/Control/ControlsLabel
+@onready var touch_ui = $CanvasLayer/TouchUI
+@onready var touch_joystick = $CanvasLayer/TouchUI/Joystick
+@onready var touch_look_area = $CanvasLayer/TouchUI/LookArea
+@onready var btn_up = $CanvasLayer/TouchUI/ButtonUp
+@onready var btn_down = $CanvasLayer/TouchUI/ButtonDown
+@onready var btn_sprint = $CanvasLayer/TouchUI/ButtonSprint
+@onready var btn_flashlight = $CanvasLayer/TouchUI/ButtonFlashlight
+@onready var btn_view = $CanvasLayer/TouchUI/ButtonView
 
 func _ready():
-	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	_is_touch_device = DisplayServer.is_touchscreen_available()
+	if touch_ui:
+		touch_ui.visible = _is_touch_device
+	if controls_label and _is_touch_device:
+		controls_label.text = "Left: Move • Drag: Look • UP/DOWN/SPRINT/LIGHT/VIEW buttons"
+
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE if _is_touch_device else Input.MOUSE_MODE_CAPTURED)
 	_update_headlamp_visibility()
 	_update_view_mode()
+
+	if touch_joystick:
+		touch_joystick.vector_changed.connect(func(v): touch_move_vector = v)
+	if touch_look_area:
+		touch_look_area.look_delta.connect(func(d): _apply_look_delta(d, TOUCH_LOOK_SENSITIVITY))
+	if btn_up:
+		btn_up.button_down.connect(func(): touch_jump_held = true)
+		btn_up.button_up.connect(func(): touch_jump_held = false)
+	if btn_down:
+		btn_down.button_down.connect(func(): touch_down_held = true)
+		btn_down.button_up.connect(func(): touch_down_held = false)
+	if btn_sprint:
+		btn_sprint.button_down.connect(func(): touch_sprint_held = true)
+		btn_sprint.button_up.connect(func(): touch_sprint_held = false)
+	if btn_flashlight:
+		btn_flashlight.pressed.connect(func():
+			flashlight_on = !flashlight_on
+			_update_headlamp_visibility())
+	if btn_view:
+		btn_view.pressed.connect(_toggle_view_mode)
 
 func _update_headlamp_visibility():
 	if flashlight:
@@ -50,13 +95,16 @@ func _update_view_mode() -> void:
 	if view_mode_label:
 		view_mode_label.text = "[V] View: " + ("THIRD PERSON" if third_person_view else "FIRST PERSON")
 
+func _apply_look_delta(delta: Vector2, sensitivity: float) -> void:
+	head.rotate_y(-delta.x * sensitivity)
+	camera.rotate_x(-delta.y * sensitivity)
+	camera.rotation.x = clamp(camera.rotation.x, deg_to_rad(-85), deg_to_rad(85))
+
 func _input(event):
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		head.rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
-		camera.rotate_x(-event.relative.y * MOUSE_SENSITIVITY)
-		camera.rotation.x = clamp(camera.rotation.x, deg_to_rad(-85), deg_to_rad(85))
+		_apply_look_delta(event.relative, MOUSE_SENSITIVITY)
 
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and not _is_touch_device:
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 	if (event is InputEventKey and event.pressed and event.keycode == KEY_F and not event.echo) or event.is_action_pressed("toggle_flashlight"):
@@ -66,7 +114,7 @@ func _input(event):
 	if (event is InputEventKey and event.pressed and event.keycode == KEY_V and not event.echo) or event.is_action_pressed("toggle_view"):
 		_toggle_view_mode()
 
-	if event.is_action_pressed("ui_cancel") or (event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE):
+	if not _is_touch_device and (event.is_action_pressed("ui_cancel") or (event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE)):
 		if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
 			Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		else:
@@ -79,13 +127,13 @@ func _get_move_vector() -> Vector2:
 	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT): x -= 1.0
 	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN): y += 1.0
 	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP): y -= 1.0
-	return Vector2(x, y).normalized()
+	return (Vector2(x, y) + touch_move_vector).normalized()
 
 func _is_sprint_pressed() -> bool:
-	return Input.is_physical_key_pressed(KEY_SHIFT) or Input.is_physical_key_pressed(KEY_CTRL)
+	return Input.is_physical_key_pressed(KEY_SHIFT) or Input.is_physical_key_pressed(KEY_CTRL) or touch_sprint_held
 
 func _is_jump_pressed() -> bool:
-	return Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_E)
+	return Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_E) or touch_jump_held
 
 func _is_over_submerged_ground(pos: Vector3) -> bool:
 	var space_state = get_world_3d().direct_space_state
@@ -124,7 +172,7 @@ func _physics_process(delta):
 		var vertical_move = 0.0
 		if _is_jump_pressed():
 			vertical_move += 1.0
-		if Input.is_physical_key_pressed(KEY_C) or Input.is_physical_key_pressed(KEY_Q):
+		if Input.is_physical_key_pressed(KEY_C) or Input.is_physical_key_pressed(KEY_Q) or touch_down_held:
 			vertical_move -= 1.0
 
 		var idle_sink = -0.8 if vertical_move == 0.0 and move_vec.length() == 0 else 0.0

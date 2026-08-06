@@ -21,6 +21,9 @@ build/
 dist/
 *.egg-info/
 
+# Godot export output (regenerate via Godot's Export dialog)
+cave-diving-game/web/
+
 # Generated cave assets and previews
 
 *_pack/
